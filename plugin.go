@@ -266,7 +266,7 @@ func (p *HomebrewPlugin) fetchSHA256(ctx context.Context, url string) (string, e
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -338,7 +338,7 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	repoURL := fmt.Sprintf("https://%s@github.com/%s.git", cfg.GitHubToken, cfg.TapRepository)
 	if out, err := executor.Run(ctx, "git", "clone", "--depth=1", repoURL, tmpDir); err != nil {

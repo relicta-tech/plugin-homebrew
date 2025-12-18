@@ -289,18 +289,18 @@ func TestParseConfig(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Clear all relevant env vars first
-			os.Unsetenv("HOMEBREW_GITHUB_TOKEN")
-			os.Unsetenv("GITHUB_TOKEN")
+			_ = os.Unsetenv("HOMEBREW_GITHUB_TOKEN")
+			_ = os.Unsetenv("GITHUB_TOKEN")
 
 			// Set test env vars
 			for key, val := range tc.envVars {
-				os.Setenv(key, val)
+				_ = os.Setenv(key, val)
 			}
 
 			// Cleanup after test
 			defer func() {
 				for key := range tc.envVars {
-					os.Unsetenv(key)
+					_ = os.Unsetenv(key)
 				}
 			}()
 
@@ -720,7 +720,7 @@ func TestFetchSHA256(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write(content)
+			_, _ = w.Write(content)
 		}))
 		defer server.Close()
 
@@ -821,7 +821,7 @@ func TestFetchSHA256(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write(content)
+			_, _ = w.Write(content)
 		}))
 		defer server.Close()
 
@@ -885,7 +885,7 @@ func TestPublishFormulaErrorPaths(t *testing.T) {
 			if callCount == 1 {
 				// First call (x86_64) succeeds
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("binary content"))
+				_, _ = w.Write([]byte("binary content"))
 			} else {
 				// Second call (arm64) fails
 				w.WriteHeader(http.StatusNotFound)
@@ -927,7 +927,7 @@ func TestPublishFormulaErrorPaths(t *testing.T) {
 		// Both SHA256 fetches succeed, but tap update will fail (no git repo)
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("binary content"))
+			_, _ = w.Write([]byte("binary content"))
 		}))
 		defer server.Close()
 
@@ -1533,7 +1533,7 @@ func TestPublishFormulaSuccessPathBeforeTap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(fmt.Sprintf("binary content %d", callCount)))
+		_, _ = w.Write([]byte(fmt.Sprintf("binary content %d", callCount)))
 	}))
 	defer server.Close()
 
@@ -1787,7 +1787,7 @@ func TestFetchSHA256ReturnsCorrectHash(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write(content)
+		_, _ = w.Write(content)
 	}))
 	defer server.Close()
 
@@ -1870,59 +1870,59 @@ func setupLocalGitRepo(t *testing.T) (string, func()) {
 	// Initialize a bare repository
 	cmd := exec.Command("git", "init", "--bare", tmpDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		t.Fatalf("failed to init bare repo: %s", string(out))
 	}
 
 	// Create a working clone to set up initial content
 	workDir, err := os.MkdirTemp("", "test-homebrew-work-*")
 	if err != nil {
-		os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(tmpDir)
 		t.Fatalf("failed to create work dir: %v", err)
 	}
 
 	// Clone the bare repo
 	cmd = exec.Command("git", "clone", tmpDir, workDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(workDir)
 		t.Fatalf("failed to clone: %s", string(out))
 	}
 
 	// Create Formula directory and initial file
 	formulaDir := filepath.Join(workDir, "Formula")
 	if err := os.MkdirAll(formulaDir, 0755); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(workDir)
 		t.Fatalf("failed to create Formula dir: %v", err)
 	}
 
 	// Create a placeholder file
 	readmePath := filepath.Join(workDir, "README.md")
 	if err := os.WriteFile(readmePath, []byte("# Homebrew Tap\n"), 0644); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(workDir)
 		t.Fatalf("failed to write README: %v", err)
 	}
 
 	// Configure git user
 	cmd = exec.Command("git", "-C", workDir, "config", "user.email", "test@example.com")
-	cmd.Run()
+	_ = cmd.Run()
 	cmd = exec.Command("git", "-C", workDir, "config", "user.name", "Test User")
-	cmd.Run()
+	_ = cmd.Run()
 
 	// Add and commit
 	cmd = exec.Command("git", "-C", workDir, "add", "-A")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(workDir)
 		t.Fatalf("failed to git add: %s", string(out))
 	}
 
 	cmd = exec.Command("git", "-C", workDir, "commit", "-m", "Initial commit")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(workDir)
 		t.Fatalf("failed to git commit: %s", string(out))
 	}
 
@@ -1932,15 +1932,15 @@ func setupLocalGitRepo(t *testing.T) (string, func()) {
 		// Try main branch instead
 		cmd = exec.Command("git", "-C", workDir, "push", "origin", "main")
 		if out2, err2 := cmd.CombinedOutput(); err2 != nil {
-			os.RemoveAll(tmpDir)
-			os.RemoveAll(workDir)
+			_ = os.RemoveAll(tmpDir)
+			_ = os.RemoveAll(workDir)
 			t.Fatalf("failed to git push: master: %s, main: %s", string(out), string(out2))
 		}
 	}
 
 	cleanup := func() {
-		os.RemoveAll(tmpDir)
-		os.RemoveAll(workDir)
+		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(workDir)
 	}
 
 	return tmpDir, cleanup
@@ -2418,7 +2418,7 @@ func TestRealCommandExecutor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to create temp dir: %v", err)
 		}
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 
 		out, err := executor.RunInDir(ctx, tmpDir, "pwd")
 		if err != nil {
@@ -2439,7 +2439,7 @@ func TestPublishFormulaGenerateFormulaSuccess(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("binary content"))
+		_, _ = w.Write([]byte("binary content"))
 	}))
 	defer server.Close()
 
