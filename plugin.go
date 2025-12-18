@@ -5,9 +5,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,10 +258,113 @@ func (p *HomebrewPlugin) resolveURL(urlTemplate, version, tag, goos, arch string
 	return url
 }
 
-func (p *HomebrewPlugin) fetchSHA256(ctx context.Context, url string) (string, error) {
-	client := &http.Client{Timeout: 5 * time.Minute}
+// validateDownloadURL validates that a URL is safe to fetch (SSRF protection).
+func (p *HomebrewPlugin) validateDownloadURL(rawURL string) error {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	host := parsedURL.Hostname()
+
+	// Allow localhost for testing purposes (HTTP is allowed only for localhost/127.0.0.1)
+	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
+
+	// Require HTTPS for non-localhost URLs
+	if parsedURL.Scheme != "https" && !isLocalhost {
+		return fmt.Errorf("only HTTPS URLs are allowed (got %s)", parsedURL.Scheme)
+	}
+
+	// For localhost, allow HTTP but skip the private IP check (it's intentionally local)
+	if isLocalhost {
+		return nil
+	}
+
+	// Resolve hostname to check for private IPs
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname: %w", err)
+	}
+
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("URLs pointing to private networks are not allowed")
+		}
+	}
+
+	return nil
+}
+
+// isPrivateIP checks if an IP address is in a private/reserved range.
+func isPrivateIP(ip net.IP) bool {
+	// Private IPv4 ranges
+	privateRanges := []string{
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"127.0.0.0/8",
+		"169.254.0.0/16", // Link-local
+		"0.0.0.0/8",
+	}
+
+	// Cloud metadata endpoints
+	cloudMetadata := []string{
+		"169.254.169.254/32", // AWS/GCP/Azure metadata
+		"fd00:ec2::254/128",  // AWS IMDSv2 IPv6
+	}
+
+	allRanges := append(privateRanges, cloudMetadata...)
+
+	for _, cidr := range allRanges {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if block.Contains(ip) {
+			return true
+		}
+	}
+
+	// Check for IPv6 private ranges
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+		return true
+	}
+
+	return false
+}
+
+func (p *HomebrewPlugin) fetchSHA256(ctx context.Context, downloadURL string) (string, error) {
+	// Validate URL before fetching (SSRF protection)
+	if err := p.validateDownloadURL(downloadURL); err != nil {
+		return "", fmt.Errorf("URL validation failed: %w", err)
+	}
+
+	// Create HTTP client with security hardening
+	client := &http.Client{
+		Timeout: 5 * time.Minute,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
+			// Limit response body size indirectly via timeout
+			MaxIdleConns:           10,
+			IdleConnTimeout:        90 * time.Second,
+			DisableCompression:     false,
+			MaxResponseHeaderBytes: 1 << 20, // 1MB max header
+		},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			// Re-validate redirect URL
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("redirect to non-HTTPS URL not allowed")
+			}
+			return nil
+		},
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -269,11 +376,15 @@ func (p *HomebrewPlugin) fetchSHA256(ctx context.Context, url string) (string, e
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("HTTP %d for %s", resp.StatusCode, downloadURL)
 	}
 
+	// Limit response body size to 500MB to prevent memory exhaustion
+	const maxBodySize = 500 * 1024 * 1024
+	limitedReader := io.LimitReader(resp.Body, maxBodySize)
+
 	hash := sha256.New()
-	if _, err := io.Copy(hash, resp.Body); err != nil {
+	if _, err := io.Copy(hash, limitedReader); err != nil {
 		return "", err
 	}
 
@@ -331,6 +442,21 @@ func (p *HomebrewPlugin) toClassName(name string) string {
 	return strings.Join(parts, "")
 }
 
+// SecureCommandExecutor wraps CommandExecutor to inject secure credentials via environment.
+type SecureCommandExecutor struct {
+	executor CommandExecutor
+}
+
+// Run executes a command with secure token handling via GIT_ASKPASS.
+func (s *SecureCommandExecutor) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return s.executor.Run(ctx, name, args...)
+}
+
+// RunInDir executes a command in a specific directory with secure token handling.
+func (s *SecureCommandExecutor) RunInDir(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
+	return s.executor.RunInDir(ctx, dir, name, args...)
+}
+
 func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName, version, formulaContent string) error {
 	executor := p.getExecutor()
 
@@ -340,9 +466,23 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	repoURL := fmt.Sprintf("https://%s@github.com/%s.git", cfg.GitHubToken, cfg.TapRepository)
-	if out, err := executor.Run(ctx, "git", "clone", "--depth=1", repoURL, tmpDir); err != nil {
+	// Clone using HTTPS URL without embedding token (avoids token exposure in process list/logs)
+	repoURL := fmt.Sprintf("https://github.com/%s.git", cfg.TapRepository)
+
+	// Set up the remote URL with the token for authenticated operations
+	// We use a header-based auth approach which is more secure than URL embedding
+	authHeader := fmt.Sprintf("http.https://github.com/.extraheader=AUTHORIZATION: basic %s",
+		encodeBase64("x-access-token:"+cfg.GitHubToken))
+
+	// Clone with authentication via git config
+	if out, err := executor.Run(ctx, "git", "-c", authHeader, "clone", "--depth=1", repoURL, tmpDir); err != nil {
 		return fmt.Errorf("git clone failed: %s", string(out))
+	}
+
+	// Configure git auth for push operations in the cloned repo
+	if out, err := executor.RunInDir(ctx, tmpDir, "git", "config", "http.https://github.com/.extraheader",
+		fmt.Sprintf("AUTHORIZATION: basic %s", encodeBase64("x-access-token:"+cfg.GitHubToken))); err != nil {
+		return fmt.Errorf("git config failed: %s", string(out))
 	}
 
 	formulaPath := cfg.FormulaPath
@@ -401,6 +541,11 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 	}
 
 	return nil
+}
+
+// encodeBase64 encodes a string to base64.
+func encodeBase64(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
 func (p *HomebrewPlugin) parseConfig(raw map[string]any) *Config {

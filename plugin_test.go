@@ -176,26 +176,26 @@ func TestParseConfig(t *testing.T) {
 	p := &HomebrewPlugin{}
 
 	tests := []struct {
-		name           string
-		config         map[string]any
-		envVars        map[string]string
-		expectedTap    string
-		expectedName   string
-		expectedLicense string
-		expectedToken  string
+		name             string
+		config           map[string]any
+		envVars          map[string]string
+		expectedTap      string
+		expectedName     string
+		expectedLicense  string
+		expectedToken    string
 		expectedCreatePR bool
-		expectedDeps   []string
+		expectedDeps     []string
 	}{
 		{
-			name:            "empty config uses defaults",
-			config:          map[string]any{},
-			envVars:         nil,
-			expectedTap:     "",
-			expectedName:    "",
-			expectedLicense: "MIT",
-			expectedToken:   "",
+			name:             "empty config uses defaults",
+			config:           map[string]any{},
+			envVars:          nil,
+			expectedTap:      "",
+			expectedName:     "",
+			expectedLicense:  "MIT",
+			expectedToken:    "",
 			expectedCreatePR: false,
-			expectedDeps:    nil,
+			expectedDeps:     nil,
 		},
 		{
 			name: "config values override defaults",
@@ -206,13 +206,13 @@ func TestParseConfig(t *testing.T) {
 				"create_pr":      true,
 				"dependencies":   []any{"git", "curl"},
 			},
-			envVars:         nil,
-			expectedTap:     "user/tap",
-			expectedName:    "myformula",
-			expectedLicense: "Apache-2.0",
-			expectedToken:   "",
+			envVars:          nil,
+			expectedTap:      "user/tap",
+			expectedName:     "myformula",
+			expectedLicense:  "Apache-2.0",
+			expectedToken:    "",
 			expectedCreatePR: true,
-			expectedDeps:    []string{"git", "curl"},
+			expectedDeps:     []string{"git", "curl"},
 		},
 		{
 			name:   "HOMEBREW_GITHUB_TOKEN env var",
@@ -220,12 +220,12 @@ func TestParseConfig(t *testing.T) {
 			envVars: map[string]string{
 				"HOMEBREW_GITHUB_TOKEN": "homebrew_token_123",
 			},
-			expectedTap:     "",
-			expectedName:    "",
-			expectedLicense: "MIT",
-			expectedToken:   "homebrew_token_123",
+			expectedTap:      "",
+			expectedName:     "",
+			expectedLicense:  "MIT",
+			expectedToken:    "homebrew_token_123",
 			expectedCreatePR: false,
-			expectedDeps:    nil,
+			expectedDeps:     nil,
 		},
 		{
 			name:   "GITHUB_TOKEN env var fallback",
@@ -233,26 +233,26 @@ func TestParseConfig(t *testing.T) {
 			envVars: map[string]string{
 				"GITHUB_TOKEN": "github_token_456",
 			},
-			expectedTap:     "",
-			expectedName:    "",
-			expectedLicense: "MIT",
-			expectedToken:   "github_token_456",
+			expectedTap:      "",
+			expectedName:     "",
+			expectedLicense:  "MIT",
+			expectedToken:    "github_token_456",
 			expectedCreatePR: false,
-			expectedDeps:    nil,
+			expectedDeps:     nil,
 		},
 		{
-			name: "HOMEBREW_GITHUB_TOKEN takes precedence over GITHUB_TOKEN",
+			name:   "HOMEBREW_GITHUB_TOKEN takes precedence over GITHUB_TOKEN",
 			config: map[string]any{},
 			envVars: map[string]string{
 				"HOMEBREW_GITHUB_TOKEN": "homebrew_token",
 				"GITHUB_TOKEN":          "github_token",
 			},
-			expectedTap:     "",
-			expectedName:    "",
-			expectedLicense: "MIT",
-			expectedToken:   "homebrew_token",
+			expectedTap:      "",
+			expectedName:     "",
+			expectedLicense:  "MIT",
+			expectedToken:    "homebrew_token",
 			expectedCreatePR: false,
-			expectedDeps:    nil,
+			expectedDeps:     nil,
 		},
 		{
 			name: "config token takes precedence over env vars",
@@ -263,12 +263,12 @@ func TestParseConfig(t *testing.T) {
 				"HOMEBREW_GITHUB_TOKEN": "homebrew_token",
 				"GITHUB_TOKEN":          "github_token",
 			},
-			expectedTap:     "",
-			expectedName:    "",
-			expectedLicense: "MIT",
-			expectedToken:   "config_token",
+			expectedTap:      "",
+			expectedName:     "",
+			expectedLicense:  "MIT",
+			expectedToken:    "config_token",
 			expectedCreatePR: false,
-			expectedDeps:    nil,
+			expectedDeps:     nil,
 		},
 		{
 			name: "tap_repository and formula_name",
@@ -276,13 +276,13 @@ func TestParseConfig(t *testing.T) {
 				"tap_repository": "relicta-tech/homebrew-tap",
 				"formula_name":   "relicta",
 			},
-			envVars:         nil,
-			expectedTap:     "relicta-tech/homebrew-tap",
-			expectedName:    "relicta",
-			expectedLicense: "MIT",
-			expectedToken:   "",
+			envVars:          nil,
+			expectedTap:      "relicta-tech/homebrew-tap",
+			expectedName:     "relicta",
+			expectedLicense:  "MIT",
+			expectedToken:    "",
 			expectedCreatePR: false,
-			expectedDeps:    nil,
+			expectedDeps:     nil,
 		},
 	}
 
@@ -1339,10 +1339,10 @@ func TestGenerateFormulaAllFields(t *testing.T) {
 	p := &HomebrewPlugin{}
 
 	cfg := &Config{
-		Description:   "Full featured tool",
-		Homepage:      "https://myproject.example.com",
-		License:       "BSD-3-Clause",
-		Dependencies:  []string{"git", "curl", "jq", "yq"},
+		Description:  "Full featured tool",
+		Homepage:     "https://myproject.example.com",
+		License:      "BSD-3-Clause",
+		Dependencies: []string{"git", "curl", "jq", "yq"},
 		InstallScript: `bin.install "mytool"
     man1.install "doc/mytool.1"`,
 		TestScript: `system "#{bin}/mytool", "--version"
@@ -2123,14 +2123,13 @@ func TestUpdateTapWithMock(t *testing.T) {
 	})
 
 	t.Run("git add failure", func(t *testing.T) {
-		callCount := 0
 		mock := &MockCommandExecutor{
 			RunFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 				return []byte("Cloning into..."), nil
 			},
 			RunInDirFunc: func(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
-				callCount++
-				if callCount == 1 && name == "git" && len(args) > 0 && args[0] == "add" {
+				// git config call comes first after clone, then git add
+				if name == "git" && len(args) > 0 && args[0] == "add" {
 					return []byte("error: pathspec"), fmt.Errorf("exit status 128")
 				}
 				return []byte("OK"), nil
