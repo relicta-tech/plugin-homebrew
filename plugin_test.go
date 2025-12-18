@@ -774,10 +774,7 @@ func TestFetchSHA256(t *testing.T) {
 	t.Run("context cancellation", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Slow response - context should cancel before completion
-			select {
-			case <-r.Context().Done():
-				return
-			}
+			<-r.Context().Done()
 		}))
 		defer server.Close()
 
@@ -1533,7 +1530,7 @@ func TestPublishFormulaSuccessPathBeforeTap(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fmt.Sprintf("binary content %d", callCount)))
+		_, _ = fmt.Fprintf(w, "binary content %d", callCount)
 	}))
 	defer server.Close()
 
