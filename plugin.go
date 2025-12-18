@@ -19,8 +19,41 @@ import (
 	"github.com/relicta-tech/relicta-plugin-sdk/plugin"
 )
 
+// CommandExecutor executes shell commands. Used for testing.
+type CommandExecutor interface {
+	Run(ctx context.Context, name string, args ...string) ([]byte, error)
+	RunInDir(ctx context.Context, dir string, name string, args ...string) ([]byte, error)
+}
+
+// RealCommandExecutor executes real shell commands.
+type RealCommandExecutor struct{}
+
+// Run executes a command and returns combined output.
+func (e *RealCommandExecutor) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	return cmd.CombinedOutput()
+}
+
+// RunInDir executes a command in a specific directory.
+func (e *RealCommandExecutor) RunInDir(ctx context.Context, dir string, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	return cmd.CombinedOutput()
+}
+
 // HomebrewPlugin implements the Homebrew formula publishing plugin.
-type HomebrewPlugin struct{}
+type HomebrewPlugin struct {
+	// cmdExecutor is used for executing shell commands. If nil, uses RealCommandExecutor.
+	cmdExecutor CommandExecutor
+}
+
+// getExecutor returns the command executor, defaulting to RealCommandExecutor.
+func (p *HomebrewPlugin) getExecutor() CommandExecutor {
+	if p.cmdExecutor != nil {
+		return p.cmdExecutor
+	}
+	return &RealCommandExecutor{}
+}
 
 // Config represents the Homebrew plugin configuration.
 type Config struct {
@@ -299,6 +332,8 @@ func (p *HomebrewPlugin) toClassName(name string) string {
 }
 
 func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName, version, formulaContent string) error {
+	executor := p.getExecutor()
+
 	tmpDir, err := os.MkdirTemp("", "homebrew-tap-*")
 	if err != nil {
 		return err
@@ -306,8 +341,7 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 	defer os.RemoveAll(tmpDir)
 
 	repoURL := fmt.Sprintf("https://%s@github.com/%s.git", cfg.GitHubToken, cfg.TapRepository)
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", repoURL, tmpDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := executor.Run(ctx, "git", "clone", "--depth=1", repoURL, tmpDir); err != nil {
 		return fmt.Errorf("git clone failed: %s", string(out))
 	}
 
@@ -325,8 +359,7 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 		return err
 	}
 
-	cmd = exec.CommandContext(ctx, "git", "-C", tmpDir, "add", formulaPath)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := executor.RunInDir(ctx, tmpDir, "git", "add", formulaPath); err != nil {
 		return fmt.Errorf("git add failed: %s", string(out))
 	}
 
@@ -336,8 +369,7 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 	}
 	commitMsg = strings.ReplaceAll(commitMsg, "{{version}}", version)
 
-	cmd = exec.CommandContext(ctx, "git", "-C", tmpDir, "commit", "-m", commitMsg)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := executor.RunInDir(ctx, tmpDir, "git", "commit", "-m", commitMsg); err != nil {
 		return fmt.Errorf("git commit failed: %s", string(out))
 	}
 
@@ -348,26 +380,22 @@ func (p *HomebrewPlugin) updateTap(ctx context.Context, cfg *Config, formulaName
 		}
 		branchName = strings.ReplaceAll(branchName, "{{version}}", version)
 
-		cmd = exec.CommandContext(ctx, "git", "-C", tmpDir, "checkout", "-b", branchName)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := executor.RunInDir(ctx, tmpDir, "git", "checkout", "-b", branchName); err != nil {
 			return fmt.Errorf("git checkout failed: %s", string(out))
 		}
 
-		cmd = exec.CommandContext(ctx, "git", "-C", tmpDir, "push", "-u", "origin", branchName)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := executor.RunInDir(ctx, tmpDir, "git", "push", "-u", "origin", branchName); err != nil {
 			return fmt.Errorf("git push failed: %s", string(out))
 		}
 
-		cmd = exec.CommandContext(ctx, "gh", "pr", "create",
+		// gh pr create - ignore errors as this is optional
+		_, _ = executor.RunInDir(ctx, tmpDir, "gh", "pr", "create",
 			"--repo", cfg.TapRepository,
 			"--title", fmt.Sprintf("Update %s to %s", formulaName, version),
 			"--body", fmt.Sprintf("Automated formula update for %s version %s", formulaName, version),
 			"--head", branchName)
-		cmd.Dir = tmpDir
-		_ = cmd.Run()
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "-C", tmpDir, "push")
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if out, err := executor.RunInDir(ctx, tmpDir, "git", "push"); err != nil {
 			return fmt.Errorf("git push failed: %s", string(out))
 		}
 	}
