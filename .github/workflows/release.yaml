@@ -56,7 +56,7 @@ jobs:
           zip homebrew_${{ matrix.suffix }}.zip homebrew_${{ matrix.suffix }}.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: homebrew_${{ matrix.suffix }}
           path: homebrew_${{ matrix.suffix }}.*
